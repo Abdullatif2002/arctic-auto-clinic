@@ -1,4 +1,10 @@
+
+import { useState } from 'react'
+
 function App() {
+  const [bookingStatus, setBookingStatus] = useState('')
+  const [isSubmitting, setIsSubmitting] = useState(false)
+
   return (
     <div className="min-h-screen bg-white text-[#172b35]">
       {/* Sticky Navbar */}
@@ -173,9 +179,8 @@ function App() {
           </a>
         </section>
 
-        {/* Booking Form */}
+        {/* Booking Form connected to backend */}
         <section id="booking-form" className="scroll-mt-24 bg-[#f8faf9] px-[7%] py-20 max-md:px-[5%] max-md:py-14">
-          {/* Heading centered */}
           <div className="mx-auto mb-8 max-w-[850px] text-center">
             <p className="mb-4 text-[11px] font-extrabold tracking-[2px] text-[#e66b3c]">
               BOOK AN APPOINTMENT
@@ -190,9 +195,51 @@ function App() {
 
           <form
             className="mx-auto max-w-[850px] rounded-2xl border border-[#e7eceb] bg-white p-9 shadow-sm max-sm:p-5"
-            onSubmit={(event) => {
+            onSubmit={async (event) => {
               event.preventDefault()
-              alert('Booking form submitted! Backend integration is coming next.')
+
+              const form = event.currentTarget
+              const formData = new FormData(form)
+
+              const bookingData = {
+                customerName: String(formData.get('customerName') || ''),
+                email: String(formData.get('email') || ''),
+                phone: String(formData.get('phone') || ''),
+                registration: String(formData.get('registration') || ''),
+                service: String(formData.get('service') || ''),
+                date: String(formData.get('date') || ''),
+                message: String(formData.get('description') || ''),
+              }
+
+              setIsSubmitting(true)
+              setBookingStatus('')
+
+              try {
+                const response = await fetch('http://localhost:5000/api/bookings', {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                  },
+                  body: JSON.stringify(bookingData),
+                })
+
+                const result = await response.json()
+
+                if (!response.ok) {
+                  throw new Error(result.message || 'Booking failed.')
+                }
+
+                setBookingStatus('Booking request submitted successfully!')
+                form.reset()
+              } catch (error) {
+                setBookingStatus(
+                  error instanceof Error
+                    ? error.message
+                    : 'Something went wrong. Please try again.',
+                )
+              } finally {
+                setIsSubmitting(false)
+              }
             }}
           >
             <div className="grid grid-cols-2 gap-x-5 gap-y-6 max-sm:grid-cols-1">
@@ -230,7 +277,7 @@ function App() {
 
               <div className="flex flex-col gap-2">
                 <label htmlFor="date" className="text-left text-[13px] font-bold text-[#172b35]">Preferred date *</label>
-                <input id="date" name="date" type="date" required className="w-full rounded-lg border border-[#d9e0df] bg-white px-3.5 py-3 text-sm text-[#172b35] outline-none focus:border-[#e66b3c] focus:ring-4 focus:ring-[#e66b3c]/10" />
+                <input id="date" name="date" type="date" min={new Date().toISOString().split('T')[0]} required className="w-full rounded-lg border border-[#d9e0df] bg-white px-3.5 py-3 text-sm text-[#172b35] outline-none focus:border-[#e66b3c] focus:ring-4 focus:ring-[#e66b3c]/10" />
               </div>
 
               <div className="col-span-full flex flex-col gap-2">
@@ -239,17 +286,30 @@ function App() {
               </div>
             </div>
 
-            {/* Submit button centered */}
             <div className="mt-7 flex justify-center">
               <button
                 type="submit"
-                className="inline-flex items-center justify-center rounded-lg bg-[#e66b3c] px-5 py-4 text-sm font-bold text-white transition hover:bg-[#cb5428] max-sm:w-full"
+                disabled={isSubmitting}
+                className="inline-flex items-center justify-center rounded-lg bg-[#e66b3c] px-5 py-4 text-sm font-bold text-white transition hover:bg-[#cb5428] disabled:cursor-not-allowed disabled:opacity-60 max-sm:w-full"
               >
-                Submit Booking Request →
+                {isSubmitting ? 'Submitting...' : 'Submit Booking Request →'}
               </button>
             </div>
 
-            <p className="mt-4 text-xs leading-6 text-[#697780] text-center">
+            {bookingStatus && (
+              <p
+                role="status"
+                className={`mt-4 text-center text-sm font-semibold ${
+                  bookingStatus.includes('successfully')
+                    ? 'text-green-700'
+                    : 'text-red-600'
+                }`}
+              >
+                {bookingStatus}
+              </p>
+            )}
+
+            <p className="mt-4 text-center text-xs leading-6 text-[#697780]">
               * Required fields. Your appointment is not confirmed until the garage reviews your request.
             </p>
           </form>
