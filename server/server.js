@@ -1,9 +1,11 @@
-
 require('dotenv').config()
 
 const express = require('express')
 const cors = require('cors')
 const { Pool } = require('pg')
+const bcrypt = require('bcryptjs')
+const jwt = require('jsonwebtoken')
+const authenticateAdmin = require('./authMiddleware')
 
 const app = express()
 const PORT = 5000
@@ -15,6 +17,12 @@ app.use(
 )
 
 app.use(express.json())
+
+// Validate JWT secret
+if (!process.env.JWT_SECRET) {
+  console.error('JWT_SECRET is missing from .env')
+  process.exit(1)
+}
 
 // PostgreSQL connection
 const pool = new Pool({
@@ -48,7 +56,83 @@ app.get('/api/health', (req, res) => {
   })
 })
 
-// Create a new booking
+// Admin login
+app.post('/api/auth/login', async (req, res) => {
+  try {
+    const { email, password } = req.body
+
+    if (
+      typeof email !== 'string' ||
+      typeof password !== 'string' ||
+      !email.trim() ||
+      !password
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: 'Email and password are required.',
+      })
+    }
+
+    const normalizedEmail = email.trim().toLowerCase()
+
+    const result = await pool.query(
+      'SELECT id, name, email, password_hash FROM admins WHERE email = $1',
+      [normalizedEmail]
+    )
+
+    if (result.rows.length === 0) {
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid email or password.',
+      })
+    }
+
+    const admin = result.rows[0]
+
+    const passwordMatch = await bcrypt.compare(
+      password,
+      admin.password_hash
+    )
+
+    if (!passwordMatch) {
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid email or password.',
+      })
+    }
+
+    const token = jwt.sign(
+      {
+        id: admin.id,
+        email: admin.email,
+      },
+      process.env.JWT_SECRET,
+      {
+        expiresIn: '2h',
+      }
+    )
+
+    return res.json({
+      success: true,
+      message: 'Login successful!',
+      token,
+      admin: {
+        id: admin.id,
+        name: admin.name,
+        email: admin.email,
+      },
+    })
+  } catch (error) {
+    console.error('Admin login error:', error.message)
+
+    return res.status(500).json({
+      success: false,
+      message: 'Unable to log in. Please try again.',
+    })
+  }
+})
+
+// Create a new booking (Public API)
 app.post('/api/bookings', async (req, res) => {
   try {
     const {
@@ -118,8 +202,8 @@ app.post('/api/bookings', async (req, res) => {
   }
 })
 
-// Get all bookings
-app.get('/api/bookings', async (req, res) => {
+// Get all bookings (Protected API)
+app.get('/api/bookings', authenticateAdmin, async (req, res) => {
   try {
     const result = await pool.query(
       'SELECT * FROM bookings ORDER BY created_at DESC',
@@ -139,61 +223,63 @@ app.get('/api/bookings', async (req, res) => {
   }
 })
 
-// Update booking status
-app.patch('/api/bookings/:id/status', async (req, res) => {
-  try {
-    const { id } = req.params
-    const { status } = req.body
+// Update booking status (Protected API)
+app.patch(
+  '/api/bookings/:id/status',
+  authenticateAdmin,
+  async (req, res) => {
+    try {
+      const { id } = req.params
+      const { status } = req.body
 
-    // Validate booking ID
-    if (!Number.isInteger(Number(id)) || Number(id) <= 0) {
-      return res.status(400).json({
+      if (!Number.isInteger(Number(id)) || Number(id) <= 0) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid booking ID.',
+        })
+      }
+
+      const allowedStatuses = ['pending', 'approved', 'rejected']
+
+      if (!allowedStatuses.includes(status)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid booking status.',
+        })
+      }
+
+      const result = await pool.query(
+        `UPDATE bookings
+         SET status = $1
+         WHERE id = $2
+         RETURNING *`,
+        [status, Number(id)]
+      )
+
+      if (result.rows.length === 0) {
+        return res.status(404).json({
+          success: false,
+          message: 'Booking not found.',
+        })
+      }
+
+      console.log(`Booking #${id} status updated to ${status}`)
+
+      return res.json({
+        success: true,
+        message: `Booking status updated to ${status}.`,
+        booking: result.rows[0],
+      })
+    } catch (error) {
+      console.error('Update booking status error:', error.message)
+
+      return res.status(500).json({
         success: false,
-        message: 'Invalid booking ID.',
+        message: 'Unable to update booking status.',
       })
     }
-
-    // Only allow these statuses
-    const allowedStatuses = ['pending', 'approved', 'rejected']
-
-    if (!allowedStatuses.includes(status)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid booking status.',
-      })
-    }
-
-    const result = await pool.query(
-      `UPDATE bookings
-       SET status = $1
-       WHERE id = $2
-       RETURNING *`,
-      [status, Number(id)],
-    )
-
-    if (result.rows.length === 0) {
-      return res.status(404).json({
-        success: false,
-        message: 'Booking not found.',
-      })
-    }
-
-    console.log(`Booking #${id} status updated to ${status}`)
-
-    return res.json({
-      success: true,
-      message: `Booking status updated to ${status}.`,
-      booking: result.rows[0],
-    })
-  } catch (error) {
-    console.error('Update booking status error:', error.message)
-
-    return res.status(500).json({
-      success: false,
-      message: 'Unable to update booking status.',
-    })
   }
-})
+)
 
 // Start server
 app.listen(PORT, () => {

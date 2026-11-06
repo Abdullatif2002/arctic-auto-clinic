@@ -1,5 +1,5 @@
-
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 
 interface Booking {
   id: number
@@ -15,6 +15,8 @@ interface Booking {
 }
 
 function AdminBookings() {
+  const navigate = useNavigate()
+
   const [bookings, setBookings] = useState<Booking[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -27,13 +29,35 @@ function AdminBookings() {
   const [statusFilter, setStatusFilter] = useState('all')
   const [serviceFilter, setServiceFilter] = useState('all')
 
+  const handleLogout = useCallback(() => {
+    sessionStorage.removeItem('adminToken')
+    sessionStorage.removeItem('adminInfo')
+    navigate('/admin/login', { replace: true })
+  }, [navigate])
+
   // Fetch all bookings
-  const fetchBookings = async () => {
+  const fetchBookings = useCallback(async () => {
+    const token = sessionStorage.getItem('adminToken')
+
+    if (!token) {
+      handleLogout()
+      return
+    }
+
     try {
       setLoading(true)
       setError('')
 
-      const response = await fetch('http://localhost:5000/api/bookings')
+      const response = await fetch('http://localhost:5000/api/bookings', {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      })
+
+      if (response.status === 401) {
+        handleLogout()
+        return
+      }
 
       if (!response.ok) {
         throw new Error('Failed to fetch bookings.')
@@ -48,17 +72,24 @@ function AdminBookings() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [handleLogout])
 
   useEffect(() => {
     fetchBookings()
-  }, [])
+  }, [fetchBookings])
 
   // Update booking status
   const updateBookingStatus = async (
     bookingId: number,
     newStatus: 'approved' | 'rejected',
   ) => {
+    const token = sessionStorage.getItem('adminToken')
+
+    if (!token) {
+      handleLogout()
+      return
+    }
+
     try {
       setUpdating(true)
       setActionError('')
@@ -69,10 +100,16 @@ function AdminBookings() {
           method: 'PATCH',
           headers: {
             'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
           },
           body: JSON.stringify({ status: newStatus }),
         },
       )
+
+      if (response.status === 401) {
+        handleLogout()
+        return
+      }
 
       const data = await response.json()
 
@@ -174,11 +211,22 @@ function AdminBookings() {
             <span>🌐</span>
             Visit Website
           </a>
+
+          <button
+            onClick={handleLogout}
+            className="flex items-center gap-3 rounded-lg px-4 py-3 text-left text-sm text-gray-300 transition hover:bg-red-500/20 hover:text-white"
+          >
+            <span>↪</span>
+            Logout
+          </button>
         </nav>
 
         <div className="hidden border-t border-white/10 p-5 text-xs text-gray-400 md:block">
           Arctic Auto Clinic
           <p className="mt-1">Admin Panel</p>
+          <p className="mt-3 text-white">
+            {JSON.parse(sessionStorage.getItem('adminInfo') || '{}').name || 'Administrator'}
+          </p>
         </div>
       </aside>
 

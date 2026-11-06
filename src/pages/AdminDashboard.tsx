@@ -1,5 +1,5 @@
-
 import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 
 interface Booking {
   id: number
@@ -15,32 +15,61 @@ interface Booking {
 }
 
 function AdminDashboard() {
+  const navigate = useNavigate()
+
   const [bookings, setBookings] = useState<Booking[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
-  useEffect(() => {
-    const fetchBookings = async () => {
-      try {
-        const response = await fetch('http://localhost:5000/api/bookings')
+  const adminInfo = JSON.parse(
+    sessionStorage.getItem('adminInfo') || '{}',
+  )
 
-        if (!response.ok) {
-          throw new Error('Failed to fetch bookings.')
-        }
+  const handleLogout = () => {
+    sessionStorage.removeItem('adminToken')
+    sessionStorage.removeItem('adminInfo')
+    navigate('/admin/login', { replace: true })
+  }
 
-        const data = await response.json()
-        setBookings(data.bookings)
-      } catch (err) {
-        setError(
-          err instanceof Error
-            ? err.message
-            : 'Something went wrong.',
-        )
-      } finally {
-        setLoading(false)
-      }
+  const fetchBookings = async () => {
+    const token = sessionStorage.getItem('adminToken')
+
+    if (!token) {
+      handleLogout()
+      return
     }
 
+    try {
+      setLoading(true)
+      setError('')
+
+      const response = await fetch('http://localhost:5000/api/bookings', {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      })
+
+      if (response.status === 401) {
+        handleLogout()
+        return
+      }
+
+      if (!response.ok) {
+        throw new Error('Failed to fetch bookings.')
+      }
+
+      const data = await response.json()
+      setBookings(data.bookings)
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : 'Something went wrong.',
+      )
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
     fetchBookings()
   }, [])
 
@@ -143,11 +172,22 @@ function AdminDashboard() {
             <span>🌐</span>
             Visit Website
           </a>
+
+          <button
+            onClick={handleLogout}
+            className="flex items-center gap-3 rounded-lg px-4 py-3 text-left text-sm text-gray-300 transition hover:bg-red-500/20 hover:text-white"
+          >
+            <span>↪</span>
+            Logout
+          </button>
         </nav>
 
         <div className="hidden border-t border-white/10 p-5 text-xs text-gray-400 md:block">
           Arctic Auto Clinic
           <p className="mt-1">Admin Panel</p>
+          <p className="mt-3 text-white">
+            {adminInfo.name || 'Administrator'}
+          </p>
         </div>
       </aside>
 
@@ -164,16 +204,26 @@ function AdminDashboard() {
               Dashboard
             </h2>
             <p className="mt-2 text-sm text-gray-500">
-              Welcome to Arctic Auto Clinic management panel.
+              Welcome, {adminInfo.name || 'Administrator'}.
             </p>
           </div>
 
-          <a
-            href="/"
-            className="rounded-lg border border-gray-200 bg-white px-4 py-3 text-sm font-semibold transition hover:bg-gray-50"
-          >
-            ← Back to Website
-          </a>
+          <div className="flex flex-wrap gap-3">
+            <button
+              onClick={fetchBookings}
+              disabled={loading}
+              className="rounded-lg border border-gray-200 bg-white px-4 py-3 text-sm font-semibold transition hover:bg-gray-50 disabled:opacity-50"
+            >
+              ↻ Refresh
+            </button>
+
+            <a
+              href="/"
+              className="rounded-lg border border-gray-200 bg-white px-4 py-3 text-sm font-semibold transition hover:bg-gray-50"
+            >
+              ← Back to Website
+            </a>
+          </div>
         </header>
 
         {/* Statistics */}
@@ -214,13 +264,6 @@ function AdminDashboard() {
                 Customer service requests
               </p>
             </div>
-
-            <button
-              onClick={() => window.location.reload()}
-              className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-semibold transition hover:bg-gray-50"
-            >
-              ↻ Refresh
-            </button>
           </div>
 
           {loading ? (
